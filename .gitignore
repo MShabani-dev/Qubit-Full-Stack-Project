@@ -1,0 +1,36 @@
+# ============================================
+# Python / Django
+# ============================================
+__pycache__/          # Compiled Python cache files
+*.py[cod]             # Python bytecode files
+*.egg-info/           # Package metadata
+.env                  # Environment variables (NEVER commit secrets)
+*.sqlite3             # Local SQLite database
+db.sqlite3            # Default Django database
+/staticfiles/         # Collected static files
+/media/               # User-uploaded media files
+
+# ============================================
+# Node / React / Vite (frontend)
+# ============================================
+node_modules/         # Installed npm packages (huge, rebuildable)
+dist/                 # Vite production build output
+.vite/                # Vite cache directory
+npm-debug.log*        # npm error logs
+
+# ============================================
+# Docker
+# ============================================
+# (Dockerfiles and docker-compose.yml SHOULD be committed)
+
+# ============================================
+# IDE / Editor
+# ============================================
+.vscode/              # VS Code settings
+.idea/                # JetBrains IDE settings
+
+# ============================================
+# OS files
+# ============================================
+.DS_Store             # macOS folder metadata
+Thumbs.db             # Windows thumbnail cache

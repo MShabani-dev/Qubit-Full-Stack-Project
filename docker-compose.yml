@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # ---------- Backend (Django) ----------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: my_project_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - backend-pip-cache:/root/.cache/pip
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=ll_project.settings
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    restart: unless-stopped
+
+  # ---------- Frontend (React + Vite) ----------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: my_project_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-pip-cache:
