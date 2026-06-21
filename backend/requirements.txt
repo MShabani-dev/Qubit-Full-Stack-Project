@@ -1,0 +1,26 @@
+# Core Django
+Django==4.2.7
+
+# Django REST Framework
+djangorestframework==3.14.0
+
+# CORS headers for frontend communication
+django-cors-headers==4.3.1
+
+# JWT Authentication
+djangorestframework-simplejwt==5.3.1
+
+# Djoser for user management
+djoser==2.2.2
+
+# Bootstrap integration
+django-bootstrap5==23.3
+
+# Image processing
+Pillow==10.1.0
+
+# Production server (optional, for deployment)
+gunicorn==21.2.0
+
+# Environment variables (optional, recommended)
+python-decouple==3.8

@@ -1,0 +1,42 @@
+/* --- Visual identity: fonts --- */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- Base identity styles (additive, safe) --- */
+:root {
+  --accent: #06b6d4;
+  --accent-glow: #22d3ee;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #0a0f1c;
+}
+
+/* Reusable gradient text for headings */
+.text-gradient {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Custom scrollbar to match the dark theme */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #0a0f1c; }
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: #06b6d4; }
+
+body {
+  background: linear-gradient(135deg, #1e3a8a, #9333ea);
+  min-height: 100vh;
+  margin: 0;
+  font-family: sans-serif;
+}

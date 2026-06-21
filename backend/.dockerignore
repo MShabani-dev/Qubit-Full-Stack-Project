@@ -1,0 +1,33 @@
+# Python virtual environment (rebuilt inside container)
+ll_env/
+venv/
+env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Local SQLite database (keep your local data out of the image)
+db.sqlite3
+
+# Git and IDE files
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+
+# Django stuff
+*.log
+local_settings.py
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db
