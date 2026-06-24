@@ -21,14 +21,16 @@ from .serializers import (
     ProfileSerializer,
     UserProfileSerializer,
 )
+from .permissions import IsOwnerOrReadOnly
 
 
 class TopicViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Topic model with like/unlike and filtering by tags.
+    Only the owner can edit/delete their own topics.
     """
     serializer_class = TopicSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
     def get_queryset(self):
         """
@@ -135,10 +137,11 @@ class TopicViewSet(viewsets.ModelViewSet):
 class EntryViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Entry model with voting and liking functionality.
+    Only the author can edit/delete their own entries.
     """
     queryset = Entry.objects.all().order_by('-date_added')
     serializer_class = EntrySerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
     def get_serializer_context(self):
         """Pass request to serializer so it can compute my_vote and is_liked"""
@@ -257,7 +260,6 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         Get current user's profile.
         Endpoint: GET /api/profiles/me/
         """
-        # FIXED: Pass User instance, not UserProfile
         serializer = UserProfileSerializer(request.user, context={'request': request})
         return Response(serializer.data)
 
@@ -294,7 +296,6 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         
         try:
             user = User.objects.get(username=username)
-            # FIXED: Pass User instance, not UserProfile
             serializer = UserProfileSerializer(user, context={'request': request})
             return Response(serializer.data)
         except User.DoesNotExist:
@@ -318,7 +319,6 @@ class UserProfileAPIView(APIView):
         Endpoint: GET /api/users/<username>/
         """
         try:
-            # Fetch the user by username
             user = User.objects.get(username=username)
         except User.DoesNotExist:
             return Response(
@@ -326,10 +326,9 @@ class UserProfileAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # CRITICAL FIX: Ensure UserProfile exists for this user
+        # Ensure UserProfile exists for this user
         UserProfile.objects.get_or_create(user=user)
         
-        # Pass the User instance to UserProfileSerializer (not UserProfile)
         serializer = UserProfileSerializer(user, context={'request': request})
         
         return Response(serializer.data)
