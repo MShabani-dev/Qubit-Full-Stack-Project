@@ -26,7 +26,8 @@ from .permissions import IsOwnerOrReadOnly
 
 class TopicViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Topic model with like/unlike and filtering by tags.
+    ViewSet for Topic model with advanced search, filtering, sorting,
+    like/unlike, hot topics and tag aggregation.
     Only the owner can edit/delete their own topics.
     """
     serializer_class = TopicSerializer
@@ -34,23 +35,78 @@ class TopicViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Get all topics with optional search and tag filtering.
-        Query params:
-        - q: search in topic text
-        - tag: filter by specific tag
+        Build the topic queryset with advanced search and filtering.
+
+        Supported query params:
+        - q          : search inside topic text (case-insensitive)
+        - author     : filter by the owner's username (exact, case-insensitive)
+        - tag        : filter topics that contain a given tag
+        - date       : time window filter -> 'today' | 'week' | 'month'
+        - ordering   : sort mode -> 'newest' (default) | 'oldest'
+                       | 'hottest' (most liked) | 'most_discussed' (most entries)
+        - my_topics  : 'true' -> only the current authenticated user's topics
         """
-        qs = Topic.objects.all().order_by('-date_added')
-        
-        # Live search: /api/topics/?q=...  filters by topic text
-        q = self.request.query_params.get('q')
+        # Annotate aggregates once so we can both filter and sort efficiently.
+        # NOTE: Use 'topic_likes' (not 'likes') because the Like model uses
+        # related_name='topic_likes'.
+        qs = Topic.objects.all().annotate(
+            num_entries=Count('entries', distinct=True),
+            num_likes=Count('topic_likes', distinct=True),
+        )
+
+        params = self.request.query_params
+
+        # 1) Text search: /api/topics/?q=...
+        q = params.get('q')
         if q:
             qs = qs.filter(text__icontains=q)
-        
-        # Filter by tag: /api/topics/?tag=python
-        tag = self.request.query_params.get('tag')
+
+        # 2) Filter by author username: /api/topics/?author=john
+        author = params.get('author')
+        if author:
+            qs = qs.filter(owner__username__iexact=author)
+
+        # 3) Filter by tag: /api/topics/?tag=python
+        tag = params.get('tag')
         if tag:
             qs = qs.filter(tags__icontains=tag)
-        
+
+        # 4) Date window filter: /api/topics/?date=today|week|month
+        date_filter = params.get('date')
+        if date_filter:
+            now = timezone.now()
+            if date_filter == 'today':
+                since = now - timedelta(days=1)
+            elif date_filter == 'week':
+                since = now - timedelta(days=7)
+            elif date_filter == 'month':
+                since = now - timedelta(days=30)
+            else:
+                since = None
+            if since is not None:
+                qs = qs.filter(date_added__gte=since)
+
+        # 5) My topics only: /api/topics/?my_topics=true
+        # Filter to show only topics owned by the currently authenticated user.
+        # This is the fix for the "My Topics" button functionality.
+        my_topics = params.get('my_topics')
+        if my_topics == 'true' and self.request.user.is_authenticated:
+            qs = qs.filter(owner=self.request.user)
+
+        # 6) Ordering / sorting
+        ordering = params.get('ordering', 'newest')
+        if ordering == 'oldest':
+            qs = qs.order_by('date_added')
+        elif ordering == 'hottest':
+            # Most liked first, newest as tie-breaker
+            qs = qs.order_by('-num_likes', '-date_added')
+        elif ordering == 'most_discussed':
+            # Most entries first, newest as tie-breaker
+            qs = qs.order_by('-num_entries', '-date_added')
+        else:
+            # Default: newest first
+            qs = qs.order_by('-date_added')
+
         return qs
 
     def get_serializer_context(self):
@@ -113,15 +169,15 @@ class TopicViewSet(viewsets.ModelViewSet):
         Get all unique tags with usage count.
         Endpoint: /api/topics/by_tag/
         """
-        # Get all topics with tags
+        # Get all topics that actually have tags
         topics_with_tags = Topic.objects.exclude(tags='')
         tag_dict = {}
-        
+
         for topic in topics_with_tags:
             for tag in topic.tag_list:
                 tag_dict[tag] = tag_dict.get(tag, 0) + 1
-        
-        # Convert to list of {tag, count} sorted by count
+
+        # Convert to list of {tag, count} sorted by count (descending)
         tag_list = [
             {'tag': tag, 'count': count}
             for tag, count in sorted(
@@ -130,7 +186,7 @@ class TopicViewSet(viewsets.ModelViewSet):
                 reverse=True
             )
         ]
-        
+
         return Response(tag_list)
 
 
@@ -270,13 +326,13 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         Endpoint: PUT/PATCH /api/profiles/update_me/
         """
         profile, created = UserProfile.objects.get_or_create(user=request.user)
-        
+
         # Update profile fields directly
         for field in ['bio', 'avatar_url', 'website', 'location']:
             if field in request.data:
                 setattr(profile, field, request.data[field])
         profile.save()
-        
+
         # Return the User serialization with updated profile
         serializer = UserProfileSerializer(request.user, context={'request': request})
         return Response(serializer.data)
@@ -293,7 +349,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 {'detail': 'username parameter is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         try:
             user = User.objects.get(username=username)
             serializer = UserProfileSerializer(user, context={'request': request})
@@ -325,10 +381,10 @@ class UserProfileAPIView(APIView):
                 {"detail": "User not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
+
         # Ensure UserProfile exists for this user
         UserProfile.objects.get_or_create(user=user)
-        
+
         serializer = UserProfileSerializer(user, context={'request': request})
-        
+
         return Response(serializer.data)
