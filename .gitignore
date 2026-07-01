@@ -9,7 +9,7 @@ __pycache__/          # Compiled Python cache files
 db.sqlite3            # Default Django database
 /staticfiles/         # Collected static files
 /media/               # User-uploaded media files
-
+echo "backend/db.sqlite3"
 # ============================================
 # Node / React / Vite (frontend)
 # ============================================

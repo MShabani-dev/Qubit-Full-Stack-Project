@@ -21,8 +21,10 @@ import {
   Image as ImageIcon,
   Check,
   X,
+  Bookmark,
 } from "lucide-react";
 import AnimatedBackground from "../components/AnimatedBackground";
+import { followTopic } from "../api/api"; // Adjust the path as needed
 
 /* ========================================================================== */
 /*  MARKDOWN TOOLBAR COMPONENT                                                */
@@ -69,7 +71,6 @@ function EntryCard({ entry, token, onUpdate }) {
   const [myLike, setMyLike] = useState(entry.is_liked ?? false);
   const [liking, setLiking] = useState(false);
 
-  // Entry editing state
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState(entry.text);
   const [saving, setSaving] = useState(false);
@@ -194,7 +195,6 @@ function EntryCard({ entry, token, onUpdate }) {
 
   return (
     <div className="rounded-xl border border-cyan-500/20 bg-[#0a1628]/60 backdrop-blur-sm p-4 flex gap-3 hover:border-cyan-500/30 transition-colors duration-300 shadow-lg">
-      {/* LEFT: Voting */}
       <div className="flex flex-col items-center gap-1 select-none">
         <button
           type="button"
@@ -241,7 +241,6 @@ function EntryCard({ entry, token, onUpdate }) {
         </button>
       </div>
 
-      {/* RIGHT: Content */}
       <div className="flex-1 min-w-0">
         {isEditing ? (
           <div className="space-y-3">
@@ -280,9 +279,7 @@ function EntryCard({ entry, token, onUpdate }) {
                   value={editedText}
                   onChange={(e) => setEditedText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && e.ctrlKey) {
-                      handleUpdate();
-                    }
+                    if (e.key === "Enter" && e.ctrlKey) handleUpdate();
                     if (e.key === "Escape") {
                       setEditedText(entry.text);
                       setIsEditing(false);
@@ -409,6 +406,11 @@ export default function TopicDetail() {
   const [myTopicLike, setMyTopicLike] = useState(false);
   const [topicLiking, setTopicLiking] = useState(false);
 
+  // Topic Follow System State
+  const [isFollowed, setIsFollowed] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingState, setFollowingState] = useState(false);
+
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
@@ -436,6 +438,10 @@ export default function TopicDetail() {
       setTopicLikeCount(data.likes_count ?? 0);
       setMyTopicLike(data.is_liked ?? false);
       setEditedTitle(data.text ?? "");
+      
+      // Init Follow State
+      setIsFollowed(data.is_followed ?? false);
+      setFollowersCount(data.followers_count ?? 0);
     } catch (error) {
       console.error("Load topic error:", error);
     } finally {
@@ -451,6 +457,29 @@ export default function TopicDetail() {
     setEntries((prev) =>
       prev.map((e) => (e.id === updatedEntry.id ? updatedEntry : e))
     );
+  };
+
+  const handleToggleFollow = async () => {
+    if (!isAuthenticated || followingState) return;
+    setFollowingState(true);
+    
+    const prevIsFollowed = isFollowed;
+    const prevFollowersCount = followersCount;
+    
+    setIsFollowed(!prevIsFollowed);
+    setFollowersCount(prevFollowersCount + (!prevIsFollowed ? 1 : -1));
+
+    try {
+      const data = await followTopic(id);
+      if (typeof data.followers_count === "number") setFollowersCount(data.followers_count);
+      if (typeof data.is_followed === "boolean") setIsFollowed(data.is_followed);
+    } catch (error) {
+      console.error("Topic follow error:", error);
+      setIsFollowed(prevIsFollowed);
+      setFollowersCount(prevFollowersCount);
+    } finally {
+      setFollowingState(false);
+    }
   };
 
   const toggleTopicLike = async () => {
@@ -588,7 +617,6 @@ export default function TopicDetail() {
       <AnimatedBackground />
 
       <div className="relative z-10 max-w-4xl mx-auto px-4 py-12">
-        {/* TOPIC CARD */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -619,8 +647,7 @@ export default function TopicDetail() {
                   disabled={savingTitle || !editedTitle.trim()}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                 >
-                  <Check size={16} />
-                  Save
+                  <Check size={16} /> Save
                 </button>
                 <button
                   type="button"
@@ -631,8 +658,7 @@ export default function TopicDetail() {
                   disabled={savingTitle}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                 >
-                  <X size={16} />
-                  Cancel
+                  <X size={16} /> Cancel
                 </button>
               </div>
             </div>
@@ -647,7 +673,6 @@ export default function TopicDetail() {
                   onClick={() => setIsEditingTitle(true)}
                   className="p-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all duration-200"
                   title="Edit title"
-                  aria-label="Edit title"
                 >
                   <Edit3 size={20} />
                 </button>
@@ -701,34 +726,55 @@ export default function TopicDetail() {
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={toggleTopicLike}
-              disabled={!isAuthenticated || topicLiking}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all duration-200 ${
-                myTopicLike
-                  ? "bg-rose-500/20 text-rose-400 shadow-[0_0_20px_rgba(244,63,94,0.3)]"
-                  : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-              aria-label={myTopicLike ? "Unlike topic" : "Like topic"}
-            >
-              <Heart
-                size={18}
-                fill={myTopicLike ? "currentColor" : "none"}
-                className="transition-transform duration-200 hover:scale-110"
-              />
-              <span>{topicLikeCount}</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Follow Button */}
+              {isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={handleToggleFollow}
+                  disabled={followingState}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all duration-200 ${
+                    isFollowed
+                      ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                      : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 border border-transparent"
+                  } disabled:opacity-50`}
+                >
+                  <Bookmark size={18} fill={isFollowed ? "currentColor" : "none"} />
+                  <span>{isFollowed ? "Following" : "Follow"}</span>
+                  <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-black/30">
+                    {followersCount}
+                  </span>
+                </button>
+              )}
+
+              {/* Like Button */}
+              <button
+                type="button"
+                onClick={toggleTopicLike}
+                disabled={!isAuthenticated || topicLiking}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all duration-200 ${
+                  myTopicLike
+                    ? "bg-rose-500/20 text-rose-400 shadow-[0_0_20px_rgba(244,63,94,0.3)]"
+                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+              >
+                <Heart
+                  size={18}
+                  fill={myTopicLike ? "currentColor" : "none"}
+                  className="transition-transform duration-200 hover:scale-110"
+                />
+                <span>{topicLikeCount}</span>
+              </button>
+            </div>
           </div>
         </motion.div>
 
-        {/* ENTRIES SECTION */}
+        {/* ... Entries and Form (same as original code) ... */}
         <div className="mt-10">
           <h2 className="text-2xl font-bold font-display text-cyan-400 mb-6 flex items-center gap-2">
             <MessageSquare size={24} />
             Entries
           </h2>
-
           <div className="space-y-4">
             {entries.length === 0 ? (
               <div className="text-center py-12 text-slate-500 bg-[#0a1628]/40 rounded-xl border border-cyan-500/10">
@@ -743,18 +789,13 @@ export default function TopicDetail() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: index * 0.05 }}
                 >
-                  <EntryCard
-                    entry={entry}
-                    token={token}
-                    onUpdate={handleEntryUpdate}
-                  />
+                  <EntryCard entry={entry} token={token} onUpdate={handleEntryUpdate} />
                 </motion.div>
               ))
             )}
           </div>
         </div>
 
-        {/* NEW ENTRY FORM */}
         {isAuthenticated ? (
           <motion.form
             onSubmit={handleSubmit}
@@ -772,26 +813,15 @@ export default function TopicDetail() {
                 onClick={() => setShowPreview((p) => !p)}
                 className="flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300 transition-colors duration-200 font-medium"
               >
-                {showPreview ? (
-                  <>
-                    <Edit3 size={14} /> Edit
-                  </>
-                ) : (
-                  <>
-                    <Eye size={14} /> Preview
-                  </>
-                )}
+                {showPreview ? <><Edit3 size={14} /> Edit</> : <><Eye size={14} /> Preview</>}
               </button>
             </div>
 
             <div className="rounded-xl border border-cyan-500/30 bg-[#0a1628]/80 backdrop-blur-md overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.1)]">
               {!showPreview && <MarkdownToolbar onInsert={insertMarkdown} />}
-
               {showPreview ? (
                 <div className="min-h-[150px] max-h-[400px] overflow-y-auto px-4 py-3 prose prose-invert prose-sm max-w-none text-slate-300 break-words prose-pre:bg-[#020617] prose-pre:border prose-pre:border-cyan-500/20 prose-code:text-cyan-300 prose-headings:text-cyan-400 prose-a:text-cyan-400">
-                  <ReactMarkdown>
-                    {newEntry.trim() || "Nothing to preview yet..."}
-                  </ReactMarkdown>
+                  <ReactMarkdown>{newEntry.trim() || "Nothing to preview yet..."}</ReactMarkdown>
                 </div>
               ) : (
                 <textarea
@@ -808,10 +838,7 @@ export default function TopicDetail() {
             <div className="mt-4 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setNewEntry("");
-                  setShowPreview(false);
-                }}
+                onClick={() => { setNewEntry(""); setShowPreview(false); }}
                 className="px-4 py-2 rounded-lg text-slate-400 hover:text-slate-300 hover:bg-slate-800/50 transition-all duration-200"
                 disabled={submitting}
               >
@@ -828,13 +855,8 @@ export default function TopicDetail() {
           </motion.form>
         ) : (
           <div className="mt-8 text-center py-8 bg-[#0a1628]/40 rounded-xl border border-cyan-500/10">
-            <p className="text-slate-400 mb-4">
-              Please log in to add an entry.
-            </p>
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-cyan-400 hover:bg-cyan-300"
-            >
+            <p className="text-slate-400 mb-4">Please log in to add an entry.</p>
+            <Link to="/login" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-cyan-400 hover:bg-cyan-300">
               Log In
             </Link>
           </div>

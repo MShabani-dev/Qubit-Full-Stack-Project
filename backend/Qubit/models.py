@@ -209,3 +209,19 @@ class UserProfile(models.Model):
         topic_likes = sum(topic.likes_count for topic in self.user.topics.all())
         entry_likes = sum(entry.likes_count for entry in self.user.entries.all())
         return topic_likes + entry_likes
+
+class UserFollow(models.Model):
+    follower = models.ForeignKey(User, related_name='following', on_delete=models.CASCADE)
+    following = models.ForeignKey(User, related_name='followers', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('follower', 'following')
+
+class TopicFollow(models.Model):
+    user = models.ForeignKey(User, related_name='followed_topics', on_delete=models.CASCADE)
+    topic = models.ForeignKey('Topic', related_name='followers', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'topic')

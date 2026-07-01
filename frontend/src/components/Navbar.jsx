@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Home, Layers, LogIn, UserPlus, LogOut, Menu, X, User, Sun, Moon } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext'; // Theme hook (provides current theme + toggle)
-import QubitLogo from './QubitLogo'; // Animated quantum logo component
+// Icons imported from lucide-react, including the new 'Activity' icon and fixed 'Moon' icon
+import { Home, Layers, LogIn, UserPlus, LogOut, Menu, X, User, Sun, Moon, Activity } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext'; // Theme hook for light/dark mode
+import QubitLogo from './QubitLogo'; // Custom animated logo component
 
 function Navbar({ username, handleLogout }) {
   const [open, setOpen] = useState(false);
@@ -11,20 +12,19 @@ function Navbar({ username, handleLogout }) {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme(); // Access theme state and toggle function
 
-  // Fallback: if the parent prop is empty (e.g. after a hard refresh),
-  // read the persisted username from localStorage so the navbar still
-  // reflects the real authentication state.
+  // Fallback: If the parent prop is empty, check localStorage.
+  // This ensures the navbar reflects the authentication state even after a hard refresh.
   const [localUser, setLocalUser] = useState(
     () => username || localStorage.getItem('username') || ''
   );
 
-  // Keep local state in sync whenever the prop changes (login / logout).
+  // Sync local state whenever the username prop changes (e.g., login or logout events).
   useEffect(() => {
     setLocalUser(username || localStorage.getItem('username') || '');
   }, [username]);
 
-  // Sync auth state across browser tabs: if the user logs in/out in another
-  // tab, the `storage` event fires here and we update accordingly.
+  // Sync auth state across different browser tabs.
+  // If a user logs out in another tab, this updates the UI in the current tab.
   useEffect(() => {
     const handleStorage = (e) => {
       if (e.key === 'username') {
@@ -35,49 +35,53 @@ function Navbar({ username, handleLogout }) {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // Close the mobile menu automatically whenever the route changes,
-  // so it doesn't stay open after the user navigates somewhere.
+  // Automatically close the mobile menu whenever the route (URL) changes.
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
 
-  // Active username: prefer the prop, fall back to local state.
+  // Determine the active user: prefer the passed prop, otherwise fallback to local state.
   const activeUser = username || localUser;
 
+  // Define navigation links centrally to map over them in both desktop and mobile views.
   const navLinks = [
     { to: '/', label: 'Home', icon: Home },
     { to: '/topics', label: 'Topics', icon: Layers },
+    { to: '/activity', label: 'Activity', icon: Activity },
   ];
 
-  // Handle logout: clear all auth-related keys, then notify the parent,
-  // then redirect to the login page.
+  // Handle user logout process.
   const onLogout = () => {
+    // Clear authentication data from local storage.
     localStorage.removeItem('access');
     localStorage.removeItem('refresh');
     localStorage.removeItem('username');
 
-    // Call the parent handler if it was provided.
+    // Trigger parent logout handler if provided.
     handleLogout?.();
 
+    // Reset local state, close menu, and redirect to the login page.
     setLocalUser('');
     setOpen(false);
     navigate('/login');
   };
 
-  // Check whether a given route is the currently active one.
+  // Helper function to check if a specific path is the current active route.
   const isActive = (path) => location.pathname === path;
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-[#0a0f1c]/80 dark:bg-gray-900/80 border-b border-white/10 transition-colors duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
-          {/* Logo: closing the mobile menu on click prevents a stuck-open menu */}
+          
+          {/* Logo Section */}
           <Link to="/" onClick={() => setOpen(false)} className="flex items-center gap-2 group">
             <QubitLogo size={40} />
           </Link>
 
           {/* Desktop Navigation Links */}
           <div className="hidden md:flex items-center gap-1">
+            {/* Destructuring parameters correctly using ({ ... }) */}
             {navLinks.map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}
@@ -95,9 +99,10 @@ function Navbar({ username, handleLogout }) {
             ))}
           </div>
 
-          {/* Desktop Auth Area + Theme Toggle */}
+          {/* Desktop Right Section: Theme Toggle & Authentication */}
           <div className="hidden md:flex items-center gap-2">
-            {/* Theme Toggle Button (Desktop) */}
+            
+            {/* Theme Toggle Button */}
             <motion.button
               whileTap={{ scale: 0.9 }}
               onClick={toggleTheme}
@@ -107,12 +112,17 @@ function Navbar({ username, handleLogout }) {
               {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             </motion.button>
 
+            {/* Authentication Area */}
             {activeUser ? (
               <div className="flex items-center gap-3">
-                <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 text-sm text-gray-200">
+                <Link
+                  to="/profile"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 text-sm text-gray-200 hover:bg-white/10 transition-colors"
+                  title="View your profile"
+                >
                   <User size={16} className="text-indigo-400" />
                   Hello, <span className="font-semibold text-indigo-300">{activeUser}</span>
-                </span>
+                </Link>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={onLogout}
@@ -142,7 +152,7 @@ function Navbar({ username, handleLogout }) {
             )}
           </div>
 
-          {/* Mobile Menu Toggle Button */}
+          {/* Mobile Menu Hamburger Toggle */}
           <button
             onClick={() => setOpen(!open)}
             className="md:hidden p-2 rounded-lg text-gray-300 hover:bg-white/10 transition-colors"
@@ -154,7 +164,7 @@ function Navbar({ username, handleLogout }) {
         </div>
       </div>
 
-      {/* Mobile Menu (animated open/close with theme toggle) */}
+      {/* Mobile Menu Dropdown (Animated) */}
       <AnimatePresence>
         {open && (
           <motion.div
@@ -165,7 +175,8 @@ function Navbar({ username, handleLogout }) {
             className="md:hidden overflow-hidden border-t border-white/10 bg-[#0a0f1c]/95 dark:bg-gray-900/95"
           >
             <div className="px-4 py-4 flex flex-col gap-2">
-              {/* Navigation Links */}
+              
+              {/* Mobile Navigation Links */}
               {navLinks.map(({ to, label, icon: Icon }) => (
                 <Link
                   key={to}
@@ -181,7 +192,7 @@ function Navbar({ username, handleLogout }) {
                 </Link>
               ))}
 
-              {/* Theme Toggle (Mobile) */}
+              {/* Mobile Theme Toggle */}
               <button
                 onClick={toggleTheme}
                 className="flex items-center gap-2 px-4 py-3 rounded-lg text-gray-400 hover:bg-white/5 text-sm font-medium transition-colors"
@@ -201,13 +212,17 @@ function Navbar({ username, handleLogout }) {
 
               <div className="h-px bg-white/10 my-2" />
 
-              {/* Auth Section */}
+              {/* Mobile Authentication Area */}
               {activeUser ? (
                 <>
-                  <span className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300">
+                  <Link
+                    to="/profile"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 hover:bg-white/5 transition-colors"
+                  >
                     <User size={18} className="text-indigo-400" />
                     Hello, <span className="font-semibold text-indigo-300">{activeUser}</span>
-                  </span>
+                  </Link>
                   <button
                     onClick={onLogout}
                     className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-medium transition-colors"

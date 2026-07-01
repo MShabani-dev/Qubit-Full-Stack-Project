@@ -11,6 +11,7 @@ import NewTopic from "./pages/NewTopic";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound"; // NEW: 404 page
 import UserProfile from "./pages/UserProfile";
+import Activity from "./pages/Activity"; // NEW: Activity feed page
 
 function App() {
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
@@ -52,6 +53,8 @@ function App() {
               <Route path="/topics/:id" element={<TopicDetail />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/users/:username" element={<UserProfile />} />
+              {/* NEW: Site-wide activity feed */}
+              <Route path="/activity" element={<Activity />} />
               {/* Catch-all route for 404 pages */}
               <Route path="*" element={<NotFound />} />
             </Routes>
