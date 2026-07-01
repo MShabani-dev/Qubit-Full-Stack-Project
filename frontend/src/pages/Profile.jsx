@@ -11,6 +11,11 @@ import {
   ThumbsUp,
   ArrowLeft,
   LogOut,
+  Globe,
+  MapPin,
+  Edit3,
+  Save,
+  X,
 } from "lucide-react";
 import AnimatedBackground from "../components/AnimatedBackground";
 
@@ -18,11 +23,24 @@ export default function Profile() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // --- Edit form state ---
+  const [editing, setEditing] = useState(false); // Toggle between view and edit mode
+  const [saving, setSaving] = useState(false); // Disable the form while a PATCH is in flight
+  const [saveError, setSaveError] = useState(""); // Inline error shown inside the edit form
+  // Editable metadata fields, matching the backend UserProfile model.
+  const [form, setForm] = useState({
+    avatar_url: "",
+    bio: "",
+    website: "",
+    location: "",
+  });
+
   const navigate = useNavigate();
 
   useEffect(() => {
     const token = localStorage.getItem("access");
-    
+
     // Check if user is authenticated
     if (!token) {
       setError("Please log in to view your profile.");
@@ -47,6 +65,14 @@ export default function Profile() {
       })
       .then((data) => {
         setProfile(data);
+        // Seed the edit form with the current profile values
+        // (empty string fallback keeps inputs controlled).
+        setForm({
+          avatar_url: data.avatar_url || "",
+          bio: data.bio || "",
+          website: data.website || "",
+          location: data.location || "",
+        });
         setLoading(false);
       })
       .catch((err) => {
@@ -59,6 +85,69 @@ export default function Profile() {
     localStorage.removeItem("access");
     localStorage.removeItem("refresh");
     navigate("/login");
+  };
+
+  // Update a single field in the edit form.
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Cancel editing: reset the form back to the saved profile values.
+  const handleCancel = () => {
+    setForm({
+      avatar_url: profile.avatar_url || "",
+      bio: profile.bio || "",
+      website: profile.website || "",
+      location: profile.location || "",
+    });
+    setSaveError("");
+    setEditing(false);
+  };
+
+  // Submit the edit form: PATCH the editable fields to /api/profiles/update_me/.
+  const handleSave = async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem("access");
+    if (!token) {
+      setSaveError("Your session has expired. Please log in again.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveError("");
+
+    try {
+      const res = await fetch(
+        "http://127.0.0.1:8000/api/profiles/update_me/",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(form),
+        }
+      );
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Your session has expired. Please log in again.");
+        }
+        throw new Error("Failed to update profile.");
+      }
+
+      const updated = await res.json();
+
+      // Merge the updated metadata into the existing profile so the
+      // header (entries, username, email) stays intact.
+      setProfile((prev) => ({ ...prev, ...updated }));
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Loading state
@@ -117,10 +206,19 @@ export default function Profile() {
           className="rounded-2xl border border-cyan-500/30 bg-black/40 backdrop-blur-md p-8 shadow-[0_0_40px_rgba(34,211,238,0.15)] mb-8"
         >
           <div className="flex items-start gap-6 mb-6">
-            {/* Avatar */}
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 flex items-center justify-center text-4xl font-bold text-white shadow-[0_0_30px_rgba(34,211,238,0.5)] flex-shrink-0">
-              {profile.username?.charAt(0)?.toUpperCase() || "U"}
-            </div>
+            {/* Avatar: render the uploaded avatar_url if present, otherwise
+                fall back to the first letter of the username. */}
+            {profile.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={`${profile.username}'s avatar`}
+                className="w-24 h-24 rounded-full object-cover shadow-[0_0_30px_rgba(34,211,238,0.5)] flex-shrink-0"
+              />
+            ) : (
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-purple-600 flex items-center justify-center text-4xl font-bold text-white shadow-[0_0_30px_rgba(34,211,238,0.5)] flex-shrink-0">
+                {profile.username?.charAt(0)?.toUpperCase() || "U"}
+              </div>
+            )}
 
             {/* User info */}
             <div className="flex-1 min-w-0">
@@ -129,14 +227,44 @@ export default function Profile() {
               </h1>
 
               {profile.email && (
-                <div className="flex items-center gap-2 text-white/60 mb-4">
+                <div className="flex items-center gap-2 text-white/60 mb-2">
                   <Mail size={16} />
                   <span className="text-sm break-all">{profile.email}</span>
                 </div>
               )}
 
+              {/* Optional metadata: location */}
+              {profile.location && (
+                <div className="flex items-center gap-2 text-white/50 mb-2">
+                  <MapPin size={16} className="text-cyan-400" />
+                  <span className="text-sm">{profile.location}</span>
+                </div>
+              )}
+
+              {/* Optional metadata: website */}
+              {profile.website && (
+                <div className="flex items-center gap-2 text-white/50 mb-2">
+                  <Globe size={16} className="text-cyan-400" />
+                  <a
+                    href={profile.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-cyan-400 hover:text-cyan-300 break-all transition-colors"
+                  >
+                    {profile.website}
+                  </a>
+                </div>
+              )}
+
+              {/* Optional metadata: bio (rendered as Markdown) */}
+              {profile.bio && (
+                <div className="prose prose-invert max-w-none text-white/70 text-sm mt-3 mb-4">
+                  <ReactMarkdown>{profile.bio}</ReactMarkdown>
+                </div>
+              )}
+
               {/* Stats - Using correct field name 'entry_count' from ProfileSerializer */}
-              <div className="flex flex-wrap gap-4">
+              <div className="flex flex-wrap gap-4 mt-4">
                 <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
                   <MessageSquare size={18} className="text-cyan-400" />
                   <span className="text-sm font-semibold">
@@ -146,18 +274,130 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Logout button */}
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-rose-400 border border-rose-400/20 hover:bg-rose-400/10 transition-all duration-200"
-              title="Log Out"
-            >
-              <LogOut size={18} />
-              <span className="hidden sm:inline text-sm font-medium">
-                Log Out
-              </span>
-            </button>
+            {/* Action buttons: Edit profile + Logout */}
+            <div className="flex flex-col gap-2 flex-shrink-0">
+              {/* Toggle the edit form on. Hidden while already editing. */}
+              {!editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-cyan-400 border border-cyan-400/20 hover:bg-cyan-400/10 transition-all duration-200"
+                  title="Edit Profile"
+                >
+                  <Edit3 size={18} />
+                  <span className="hidden sm:inline text-sm font-medium">
+                    Edit
+                  </span>
+                </button>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-rose-400 border border-rose-400/20 hover:bg-rose-400/10 transition-all duration-200"
+                title="Log Out"
+              >
+                <LogOut size={18} />
+                <span className="hidden sm:inline text-sm font-medium">
+                  Log Out
+                </span>
+              </button>
+            </div>
           </div>
+
+          {/* EDIT FORM: shown only in edit mode. PATCHes /api/profiles/update_me/. */}
+          {editing && (
+            <motion.form
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              onSubmit={handleSave}
+              className="mt-4 pt-6 border-t border-white/10 space-y-4"
+            >
+              {/* Avatar URL */}
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-1">
+                  Avatar URL
+                </label>
+                <input
+                  type="url"
+                  name="avatar_url"
+                  value={form.avatar_url}
+                  onChange={handleChange}
+                  placeholder="https://example.com/avatar.png"
+                  className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white placeholder-white/30 focus:border-cyan-400/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Bio (supports Markdown) */}
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-1">
+                  Bio
+                </label>
+                <textarea
+                  name="bio"
+                  value={form.bio}
+                  onChange={handleChange}
+                  rows={4}
+                  placeholder="Tell others about yourself (Markdown supported)..."
+                  className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white placeholder-white/30 focus:border-cyan-400/50 focus:outline-none transition-colors resize-y"
+                />
+              </div>
+
+              {/* Website */}
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-1">
+                  Website
+                </label>
+                <input
+                  type="url"
+                  name="website"
+                  value={form.website}
+                  onChange={handleChange}
+                  placeholder="https://your-site.com"
+                  className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white placeholder-white/30 focus:border-cyan-400/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Location */}
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-1">
+                  Location
+                </label>
+                <input
+                  type="text"
+                  name="location"
+                  value={form.location}
+                  onChange={handleChange}
+                  placeholder="City, Country"
+                  className="w-full px-4 py-2 rounded-lg bg-black/30 border border-white/10 text-white placeholder-white/30 focus:border-cyan-400/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Inline save error */}
+              {saveError && (
+                <p className="text-sm text-rose-400">{saveError}</p>
+              )}
+
+              {/* Form actions */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-black bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-200"
+                >
+                  <Save size={16} />
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg font-medium text-white/70 border border-white/20 hover:bg-white/10 disabled:opacity-50 transition-all duration-200"
+                >
+                  <X size={16} />
+                  Cancel
+                </button>
+              </div>
+            </motion.form>
+          )}
         </motion.div>
 
         {/* MY ENTRIES SECTION */}
