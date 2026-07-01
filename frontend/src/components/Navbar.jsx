@@ -109,10 +109,16 @@ function Navbar({ username, handleLogout }) {
 
             {activeUser ? (
               <div className="flex items-center gap-3">
-                <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 text-sm text-gray-200">
+                {/* CHANGED: the username chip is now a Link that navigates to the
+                    current user's own profile page (/profile). */}
+                <Link
+                  to="/profile"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 text-sm text-gray-200 hover:bg-white/10 transition-colors"
+                  title="View your profile"
+                >
                   <User size={16} className="text-indigo-400" />
                   Hello, <span className="font-semibold text-indigo-300">{activeUser}</span>
-                </span>
+                </Link>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={onLogout}
@@ -204,10 +210,16 @@ function Navbar({ username, handleLogout }) {
               {/* Auth Section */}
               {activeUser ? (
                 <>
-                  <span className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300">
+                  {/* CHANGED: mobile username row is now a Link to /profile.
+                      Closing the menu on click keeps the UX consistent. */}
+                  <Link
+                    to="/profile"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 hover:bg-white/5 transition-colors"
+                  >
                     <User size={18} className="text-indigo-400" />
                     Hello, <span className="font-semibold text-indigo-300">{activeUser}</span>
-                  </span>
+                  </Link>
                   <button
                     onClick={onLogout}
                     className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-medium transition-colors"

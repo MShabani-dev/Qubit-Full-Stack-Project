@@ -13,14 +13,19 @@ from django.contrib.auth.models import User
 from django.db.models import Count, Q
 from django.utils import timezone
 
+
 from .models import Topic, Entry, Vote, Like, UserProfile
+
 from .serializers import (
     TopicSerializer,
     EntrySerializer,
-    RegisterSerializer,
-    ProfileSerializer,
+    LikeSerializer,
     UserProfileSerializer,
+    UserProfileUpdateSerializer,
+    ProfileSerializer,
+    RegisterSerializer,
 )
+
 from .permissions import IsOwnerOrReadOnly
 
 
@@ -87,8 +92,6 @@ class TopicViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(date_added__gte=since)
 
         # 5) My topics only: /api/topics/?my_topics=true
-        # Filter to show only topics owned by the currently authenticated user.
-        # This is the fix for the "My Topics" button functionality.
         my_topics = params.get('my_topics')
         if my_topics == 'true' and self.request.user.is_authenticated:
             qs = qs.filter(owner=self.request.user)
@@ -310,32 +313,59 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    def get_serializer_class(self):
+        """
+        Use the writable UserProfile serializer ONLY for the update action.
+        All read/display actions keep the rich, User-based UserProfileSerializer
+        (which exposes computed stats + nested profile metadata).
+        """
+        if self.action == 'update_me':
+            return UserProfileUpdateSerializer
+        return UserProfileSerializer
+
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):
         """
-        Get current user's profile.
+        Get current user's profile (rich representation).
         Endpoint: GET /api/profiles/me/
         """
-        serializer = UserProfileSerializer(request.user, context={'request': request})
+        # Make sure a profile row exists so nested fields don't break.
+        UserProfile.objects.get_or_create(user=request.user)
+        # Display serializer is bound to the User model and computes stats.
+        serializer = UserProfileSerializer(
+            request.user, context={'request': request}
+        )
         return Response(serializer.data)
 
     @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated])
     def update_me(self, request):
         """
-        Update current user's profile (UserProfile model fields).
+        Update current user's profile metadata.
         Endpoint: PUT/PATCH /api/profiles/update_me/
+
+        Validates the incoming payload through UserProfileUpdateSerializer
+        (bound to the UserProfile model), then saves it correctly.
         """
-        profile, created = UserProfile.objects.get_or_create(user=request.user)
+        # Ensure a profile row exists for this user.
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
-        # Update profile fields directly
-        for field in ['bio', 'avatar_url', 'website', 'location']:
-            if field in request.data:
-                setattr(profile, field, request.data[field])
-        profile.save()
+        # PATCH -> partial update, PUT -> full update.
+        partial = request.method == 'PATCH'
 
-        # Return the User serialization with updated profile
-        serializer = UserProfileSerializer(request.user, context={'request': request})
-        return Response(serializer.data)
+        write_serializer = UserProfileUpdateSerializer(
+            instance=profile,
+            data=request.data,
+            partial=partial,
+            context={'request': request},
+        )
+        write_serializer.is_valid(raise_exception=True)
+        write_serializer.save()
+
+        # Return the full rich profile (stats + metadata) after a successful save.
+        read_serializer = UserProfileSerializer(
+            request.user, context={'request': request}
+        )
+        return Response(read_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def by_username(self, request):
@@ -352,13 +382,18 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
         try:
             user = User.objects.get(username=username)
-            serializer = UserProfileSerializer(user, context={'request': request})
-            return Response(serializer.data)
         except User.DoesNotExist:
             return Response(
                 {'detail': 'User not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        # Ensure a profile exists so nested fields resolve cleanly.
+        UserProfile.objects.get_or_create(user=user)
+        serializer = UserProfileSerializer(
+            user, context={'request': request}
+        )
+        return Response(serializer.data)
 
 
 class UserProfileAPIView(APIView):
@@ -388,4 +423,3 @@ class UserProfileAPIView(APIView):
         serializer = UserProfileSerializer(user, context={'request': request})
 
         return Response(serializer.data)
-# tt

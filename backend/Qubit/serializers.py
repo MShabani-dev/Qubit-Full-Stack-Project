@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from django.db.models import Sum
 from .models import Topic, Entry, Vote, Like, UserProfile
 
 
@@ -8,21 +7,16 @@ class EntrySerializer(serializers.ModelSerializer):
     """
     Serializer for Entry model with author info, vote score, and like status.
     """
-    # Show author's username (read-only) instead of its id
     author = serializers.ReadOnlyField(source='author.username')
-    # Computed total score from the related votes
     score = serializers.IntegerField(read_only=True)
-    # The current user's vote on this entry: 1, -1, or 0
     my_vote = serializers.SerializerMethodField()
-    # Total number of likes
     likes_count = serializers.IntegerField(read_only=True)
-    # Whether current user has liked this entry
     is_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Entry
         fields = [
-            'id', 'text', 'date_added', 'topic', 'author', 
+            'id', 'text', 'date_added', 'topic', 'author',
             'score', 'my_vote', 'likes_count', 'is_liked'
         ]
 
@@ -46,26 +40,22 @@ class TopicSerializer(serializers.ModelSerializer):
     """
     Serializer for Topic model with nested entries, tags, and like status.
     """
-    # related_name is now 'entries', so source must match it
     entries = EntrySerializer(many=True, read_only=True)
-    # Convenient owner username + entry count
     owner = serializers.ReadOnlyField(source='owner.username')
     entry_count = serializers.SerializerMethodField()
-    # Tags support
     tag_list = serializers.ListField(
         child=serializers.CharField(max_length=50),
         required=False,
         write_only=True
     )
     tags = serializers.CharField(read_only=True)
-    # Like info
     likes_count = serializers.IntegerField(read_only=True)
     is_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
         fields = [
-            'id', 'text', 'date_added', 'owner', 'entry_count', 
+            'id', 'text', 'date_added', 'owner', 'entry_count',
             'entries', 'tags', 'tag_list', 'likes_count', 'is_liked'
         ]
         read_only_fields = ['owner']
@@ -123,7 +113,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
     total_score = serializers.SerializerMethodField()
     recent_entries = serializers.SerializerMethodField()
     recent_topics = serializers.SerializerMethodField()
-    # Include UserProfile fields via nested serialization
     bio = serializers.CharField(source='profile.bio', read_only=True)
     avatar_url = serializers.URLField(source='profile.avatar_url', read_only=True)
     website = serializers.URLField(source='profile.website', read_only=True)
@@ -150,13 +139,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_total_score(self, obj):
         """Total score from all user's entries"""
         entries = Entry.objects.filter(author=obj)
-        total = sum(entry.score for entry in entries)
-        return total
+        return sum(entry.score for entry in entries)
 
     def get_recent_entries(self, obj):
         """Last 10 entries by the user"""
         entries = Entry.objects.filter(author=obj).order_by('-date_added')[:10]
-        
         return [{
             'id': e.id,
             'text': e.text[:150] + '...' if len(e.text) > 150 else e.text,
@@ -188,21 +175,19 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'password', 'email']
 
     def create(self, validated_data):
-        """Create user and their profile"""
+        """Create user and ensure an associated profile exists"""
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
             password=validated_data['password'],
         )
-        # Create associated profile
-        UserProfile.objects.create(user=user)
+        # get_or_create avoids duplicate-profile errors if a signal also creates one
+        UserProfile.objects.get_or_create(user=user)
         return user
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    """
-    Serializer for the logged-in user's full profile including their entries.
-    """
+    """Serializer for the authenticated user's own profile (/api/profile/)."""
     entries = EntrySerializer(many=True, read_only=True)
     entry_count = serializers.SerializerMethodField()
 
@@ -211,5 +196,15 @@ class ProfileSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'email', 'entry_count', 'entries']
 
     def get_entry_count(self, obj):
-        """Return total entries by this user"""
+        """Return total entries written by this user."""
         return obj.entries.count()
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """
+    Writable serializer for updating UserProfile metadata fields.
+    """
+    class Meta:
+        model = UserProfile
+        fields = ['bio', 'avatar_url', 'website', 'location']
+
