@@ -1,10 +1,19 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-// Icons imported from lucide-react, including the new 'Activity' icon and fixed 'Moon' icon
-import { Home, Layers, LogIn, UserPlus, LogOut, Menu, X, User, Sun, Moon, Activity } from 'lucide-react';
+// Icons imported from lucide-react, including 'Activity' and the new 'ShieldCheck' (moderation link)
+import { Home, Layers, LogIn, UserPlus, LogOut, Menu, X, User, Sun, Moon, Activity, ShieldCheck } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext'; // Theme hook for light/dark mode
 import QubitLogo from './QubitLogo'; // Custom animated logo component
+
+// Read the moderator flags stored at login. Accepts "true" or "1".
+const readIsStaff = () => {
+  const isTrue = (v) => v === 'true' || v === '1';
+  return (
+    Boolean(localStorage.getItem('access')) &&
+    (isTrue(localStorage.getItem('is_staff')) || isTrue(localStorage.getItem('is_superuser')))
+  );
+};
 
 function Navbar({ username, handleLogout }) {
   const [open, setOpen] = useState(false);
@@ -18,9 +27,14 @@ function Navbar({ username, handleLogout }) {
     () => username || localStorage.getItem('username') || ''
   );
 
+  // Whether the current user is a moderator (staff or superuser).
+  const [isStaff, setIsStaff] = useState(readIsStaff);
+
   // Sync local state whenever the username prop changes (e.g., login or logout events).
+  // Staff flags are re-read at the same time, because they are saved during login.
   useEffect(() => {
     setLocalUser(username || localStorage.getItem('username') || '');
+    setIsStaff(readIsStaff());
   }, [username]);
 
   // Sync auth state across different browser tabs.
@@ -29,6 +43,9 @@ function Navbar({ username, handleLogout }) {
     const handleStorage = (e) => {
       if (e.key === 'username') {
         setLocalUser(e.newValue || '');
+      }
+      if (e.key === 'is_staff' || e.key === 'is_superuser' || e.key === 'access') {
+        setIsStaff(readIsStaff());
       }
     };
     window.addEventListener('storage', handleStorage);
@@ -44,11 +61,17 @@ function Navbar({ username, handleLogout }) {
   const activeUser = username || localUser;
 
   // Define navigation links centrally to map over them in both desktop and mobile views.
-  const navLinks = [
+  const baseLinks = [
     { to: '/', label: 'Home', icon: Home },
     { to: '/topics', label: 'Topics', icon: Layers },
     { to: '/activity', label: 'Activity', icon: Activity },
   ];
+
+  // The Moderation link is only added for signed-in staff users.
+  const navLinks =
+    activeUser && isStaff
+      ? [...baseLinks, { to: '/moderation', label: 'Moderation', icon: ShieldCheck }]
+      : baseLinks;
 
   // Handle user logout process.
   const onLogout = () => {
@@ -56,12 +79,16 @@ function Navbar({ username, handleLogout }) {
     localStorage.removeItem('access');
     localStorage.removeItem('refresh');
     localStorage.removeItem('username');
+    // Clear moderator flags so they cannot leak to the next user on this browser.
+    localStorage.removeItem('is_staff');
+    localStorage.removeItem('is_superuser');
 
     // Trigger parent logout handler if provided.
     handleLogout?.();
 
     // Reset local state, close menu, and redirect to the login page.
     setLocalUser('');
+    setIsStaff(false);
     setOpen(false);
     navigate('/login');
   };

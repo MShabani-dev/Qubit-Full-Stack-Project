@@ -2,12 +2,13 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from . import views
-from .views import UserProfileAPIView, FeedAPIView, ActivityFeedAPIView
+from .views import UserProfileAPIView, FeedAPIView, ActivityFeedAPIView, BanUserView
 
 router = DefaultRouter()
 router.register(r'topics', views.TopicViewSet, basename='topic')
 router.register(r'entries', views.EntryViewSet, basename='entry')
 router.register(r'profiles', views.UserProfileViewSet, basename='profile-vs')
+router.register(r'reports', views.ReportViewSet, basename='report')
 
 urlpatterns = [
     # All router-generated routes are mounted under /api/
@@ -15,7 +16,7 @@ urlpatterns = [
 
     # Auth
     path('api/register/', views.RegisterAPIView.as_view(), name='register'),
-    path('api/login/', TokenObtainPairView.as_view(), name='login'),
+    path('api/login/', views.CustomTokenObtainPairView.as_view(), name='login'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # Logged-in user's own full profile (entries + stats)
@@ -29,4 +30,6 @@ urlpatterns = [
 
     # Site-wide Activity Feed
     path('api/activity/', ActivityFeedAPIView.as_view(), name='activity'),
+    # Staff-only ban/unban: POST /api/users/<username>/ban/ or /unban/
+    path('api/users/<str:username>/<str:action>/', BanUserView.as_view(), name='user-ban'),
 ]

@@ -12,6 +12,7 @@ import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound"; // NEW: 404 page
 import UserProfile from "./pages/UserProfile";
 import Activity from "./pages/Activity"; // NEW: Activity feed page
+import ModerationPanel from "./pages/ModerationPanel"; // NEW: Staff-only moderation panel
 
 function App() {
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
@@ -33,6 +34,8 @@ function App() {
     localStorage.removeItem('access');
     localStorage.removeItem('refresh');
     localStorage.removeItem('username');
+    localStorage.removeItem('is_staff');
+    localStorage.removeItem('is_superuser');
     setUsername("");
   };
 
@@ -55,6 +58,8 @@ function App() {
               <Route path="/users/:username" element={<UserProfile />} />
               {/* NEW: Site-wide activity feed */}
               <Route path="/activity" element={<Activity />} />
+              {/* NEW: Moderation panel (redirects non-staff users itself) */}
+              <Route path="/moderation" element={<ModerationPanel />} />
               {/* Catch-all route for 404 pages */}
               <Route path="*" element={<NotFound />} />
             </Routes>

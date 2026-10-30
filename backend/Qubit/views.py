@@ -9,13 +9,27 @@ from rest_framework.permissions import (
     IsAuthenticated,
     AllowAny,
 )
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import CustomTokenObtainPairSerializer
+
+
+from rest_framework.exceptions import ValidationError
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-
-from .models import Topic, Entry, Vote, Like, UserProfile, UserFollow, TopicFollow
-
+from .models import (
+    Topic,
+    Entry,
+    Vote,
+    Like,
+    UserProfile,
+    UserFollow,
+    TopicFollow,
+    Report,
+)
 from .serializers import (
     TopicSerializer,
     EntrySerializer,
@@ -24,9 +38,16 @@ from .serializers import (
     UserProfileUpdateSerializer,
     ProfileSerializer,
     RegisterSerializer,
+    ReportSerializer,
 )
+from .permissions import IsOwnerOrReadOnly, IsAdminOrModerator, IsNotBanned
 
-from .permissions import IsOwnerOrReadOnly
+
+def _as_bool(value):
+    """Parse booleans sent as JSON or form strings."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 class TopicViewSet(viewsets.ModelViewSet):
@@ -35,7 +56,7 @@ class TopicViewSet(viewsets.ModelViewSet):
     like/unlike, hot topics, tag aggregation, and follow functionality.
     """
     serializer_class = TopicSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    permission_classes = [IsAuthenticatedOrReadOnly, IsNotBanned, IsOwnerOrReadOnly]
 
     def get_queryset(self):
         qs = Topic.objects.all().annotate(
@@ -109,13 +130,10 @@ class TopicViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(topics, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsNotBanned])
     def like(self, request, pk=None):
         topic = self.get_object()
-        existing_like = Like.objects.filter(
-            user=request.user,
-            topic=topic
-        ).first()
+        existing_like = Like.objects.filter(user=request.user, topic=topic).first()
 
         if existing_like:
             existing_like.delete()
@@ -126,10 +144,10 @@ class TopicViewSet(viewsets.ModelViewSet):
 
         return Response({
             'is_liked': is_liked,
-            'likes_count': topic.likes_count if hasattr(topic, 'likes_count') else topic.topic_likes.count()
+            'likes_count': topic.topic_likes.count()
         })
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsNotBanned])
     def follow(self, request, pk=None):
         """Toggle follow on a topic."""
         topic = self.get_object()
@@ -164,7 +182,6 @@ class TopicViewSet(viewsets.ModelViewSet):
                 reverse=True
             )
         ]
-
         return Response(tag_list)
 
 
@@ -174,7 +191,7 @@ class EntryViewSet(viewsets.ModelViewSet):
     """
     queryset = Entry.objects.all().order_by('-date_added')
     serializer_class = EntrySerializer
-    permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    permission_classes = [IsAuthenticatedOrReadOnly, IsNotBanned, IsOwnerOrReadOnly]
 
     def get_serializer_context(self):
         return {'request': self.request}
@@ -182,7 +199,7 @@ class EntryViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsNotBanned])
     def vote(self, request, pk=None):
         entry = self.get_object()
         value = request.data.get('value')
@@ -216,13 +233,10 @@ class EntryViewSet(viewsets.ModelViewSet):
 
         return Response({'score': entry.score, 'my_vote': my_vote})
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsNotBanned])
     def like(self, request, pk=None):
         entry = self.get_object()
-        existing_like = Like.objects.filter(
-            user=request.user,
-            entry=entry
-        ).first()
+        existing_like = Like.objects.filter(user=request.user, entry=entry).first()
 
         if existing_like:
             existing_like.delete()
@@ -233,7 +247,7 @@ class EntryViewSet(viewsets.ModelViewSet):
 
         return Response({
             'is_liked': is_liked,
-            'likes_count': entry.likes_count if hasattr(entry, 'likes_count') else entry.entry_likes.count()
+            'likes_count': entry.entry_likes.count()
         })
 
 
@@ -247,10 +261,7 @@ class ProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        serializer = ProfileSerializer(
-            request.user,
-            context={'request': request}
-        )
+        serializer = ProfileSerializer(request.user, context={'request': request})
         return Response(serializer.data)
 
 
@@ -264,15 +275,13 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             return UserProfileUpdateSerializer
         return UserProfileSerializer
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, IsNotBanned])
     def me(self, request):
         UserProfile.objects.get_or_create(user=request.user)
-        serializer = UserProfileSerializer(
-            request.user, context={'request': request}
-        )
+        serializer = UserProfileSerializer(request.user, context={'request': request})
         return Response(serializer.data)
 
-    @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated, IsNotBanned])
     def update_me(self, request):
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         partial = request.method == 'PATCH'
@@ -286,9 +295,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         write_serializer.is_valid(raise_exception=True)
         write_serializer.save()
 
-        read_serializer = UserProfileSerializer(
-            request.user, context={'request': request}
-        )
+        read_serializer = UserProfileSerializer(request.user, context={'request': request})
         return Response(read_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], permission_classes=[AllowAny])
@@ -299,7 +306,6 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 {'detail': 'username parameter is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         try:
             user = User.objects.get(username=username)
         except User.DoesNotExist:
@@ -309,12 +315,10 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             )
 
         UserProfile.objects.get_or_create(user=user)
-        serializer = UserProfileSerializer(
-            user, context={'request': request}
-        )
+        serializer = UserProfileSerializer(user, context={'request': request})
         return Response(serializer.data)
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated, IsNotBanned])
     def follow(self, request):
         """Toggle follow on a user by username."""
         username = request.data.get('username')
@@ -351,10 +355,7 @@ class UserProfileAPIView(APIView):
         try:
             user = User.objects.get(username=username)
         except User.DoesNotExist:
-            return Response(
-                {"detail": "User not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         UserProfile.objects.get_or_create(user=user)
         serializer = UserProfileSerializer(user, context={'request': request})
@@ -370,7 +371,6 @@ class FeedAPIView(APIView):
 
     def get(self, request):
         user = request.user
-
         followed_topic_ids = user.followed_topics.values_list('topic_id', flat=True)
         followed_user_ids = user.following.values_list('following_id', flat=True)
 
@@ -401,15 +401,13 @@ class ActivityFeedAPIView(APIView):
         )
         for topic in recent_topics:
             activities.append({
-                # Ensure id is absolutely unique for React keys
-                'id': f'topic_{topic.id}', 
+                'id': f'topic_{topic.id}',
                 'type': 'topic_created',
                 'actor': topic.owner.username if topic.owner else 'Anonymous',
                 'topic_id': topic.id,
                 'topic_text': topic.text,
                 'entry_id': None,
-                # Explicitly pass none for entry_text since it's a topic creation
-                'entry_text': None, 
+                'entry_text': None,
                 'date': topic.date_added,
             })
 
@@ -427,8 +425,7 @@ class ActivityFeedAPIView(APIView):
                 'topic_id': entry.topic.id,
                 'topic_text': entry.topic.text,
                 'entry_id': entry.id,
-                # Include entry text to differentiate the content
-                'entry_text': entry.text, 
+                'entry_text': entry.text,
                 'date': entry.date_added,
             })
 
@@ -463,8 +460,204 @@ class ActivityFeedAPIView(APIView):
                 'date': like.created_at,
             })
 
-        # Merge all sources, sort by date (newest first), then cap the result
         activities.sort(key=lambda item: item['date'], reverse=True)
         activities = activities[:limit]
 
         return Response(activities)
+
+
+class ReportViewSet(viewsets.ModelViewSet):
+    """
+    Report endpoints.
+
+    - POST /api/reports/                Submit a report (any signed-in user)
+    - GET  /api/reports/                Moderation queue (staff only)
+    - GET  /api/reports/my/             Reports submitted by the current user
+    - POST /api/reports/{id}/resolve/   Approve: remove content (staff only)
+    - POST /api/reports/{id}/reject/    Dismiss the report (staff only)
+    """
+    serializer_class = ReportSerializer
+    permission_classes = [IsAuthenticated, IsNotBanned]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Report.objects.select_related(
+            'reporter', 'resolved_by', 'topic', 'entry',
+            'topic__owner', 'entry__author'
+        )
+
+        if user.is_staff or user.is_superuser:
+            status_filter = self.request.query_params.get('status')
+            if status_filter in dict(Report.STATUS_CHOICES):
+                qs = qs.filter(status=status_filter)
+            reason_filter = self.request.query_params.get('reason')
+            if reason_filter in dict(Report.REASON_CHOICES):
+                qs = qs.filter(reason=reason_filter)
+            return qs
+
+        # Regular users can only see their own reports
+        return qs.filter(reporter=user)
+
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+    def perform_create(self, serializer):
+        serializer.save(reporter=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        return Response(
+            {'detail': 'Reports cannot be edited. Use resolve or reject.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'detail': 'Only moderators can delete reports.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'])
+    def my(self, request):
+        """Return all reports submitted by the current user."""
+        reports = Report.objects.filter(reporter=request.user).order_by('-created_at')
+        serializer = self.get_serializer(reports, many=True)
+        return Response(serializer.data)
+
+    def _resolve(self, request, pk, new_status):
+        """
+        Shared logic for resolve and reject actions.
+        Handles bulk-closing of related reports, content removal, and optional banning.
+        """
+        report = self.get_object()
+        if report.status != Report.PENDING:
+            return Response(
+                {'detail': f'This report is already {report.status}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        note = (request.data.get('note') or '').strip()
+        delete_content = _as_bool(request.data.get('delete_content', True))
+        ban_user = _as_bool(request.data.get('ban_user', False))
+        ban_duration_days = request.data.get('ban_duration_days')  # None = permanent
+
+        with transaction.atomic():
+            # Update this report
+            report.status = new_status
+            report.resolved_by = request.user
+            report.resolved_at = timezone.now()
+            report.resolution_note = note
+
+            if new_status == Report.RESOLVED and delete_content:
+                # Remove the flagged content; FK is SET_NULL so report row survives
+                if report.topic_id and report.topic:
+                    report.topic.delete()
+                elif report.entry_id and report.entry:
+                    report.entry.delete()
+                report.content_removed = True
+
+            report.save()
+
+            # Bulk-close all other pending reports for the same piece of content
+            Report.objects.filter(
+                target_type=report.target_type,
+                target_id=report.target_id,
+                status=Report.PENDING,
+            ).exclude(pk=report.pk).update(
+                status=new_status,
+                resolved_by=request.user,
+                resolved_at=timezone.now(),
+                resolution_note=f'Bulk-closed with report #{report.id}',
+            )
+
+            # Optionally ban the reported user
+            if new_status == Report.RESOLVED and ban_user and report.reported_user:
+                profile, _ = UserProfile.objects.get_or_create(user=report.reported_user)
+                profile.is_banned = True
+                profile.banned_at = timezone.now()
+                profile.banned_reason = note or f'Banned via report #{report.id}'
+                if ban_duration_days:
+                    try:
+                        profile.banned_until = timezone.now() + timedelta(
+                            days=int(ban_duration_days)
+                        )
+                    except (ValueError, TypeError):
+                        profile.banned_until = None  # Fall back to permanent
+                else:
+                    profile.banned_until = None  # Permanent ban
+                profile.save()
+
+        serializer = self.get_serializer(report)
+        return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=['post'],
+        permission_classes=[IsAuthenticated, IsAdminOrModerator],
+    )
+    def resolve(self, request, pk=None):
+        """Approve a report: remove content and/or ban the reported user."""
+        return self._resolve(request, pk, Report.RESOLVED)
+
+    @action(
+        detail=True,
+        methods=['post'],
+        permission_classes=[IsAuthenticated, IsAdminOrModerator],
+    )
+    def reject(self, request, pk=None):
+        """Dismiss a report without taking action on the content."""
+        return self._resolve(request, pk, Report.REJECTED)
+
+
+class BanUserView(APIView):
+    """
+    POST /api/users/<username>/ban/   — ban a user directly (staff only)
+    POST /api/users/<username>/unban/ — lift an existing ban (staff only)
+    """
+    permission_classes = [IsAuthenticated, IsAdminOrModerator]
+
+    def post(self, request, username, action):
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return Response(
+                {'detail': 'User not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+
+        if action == 'ban':
+            reason = (request.data.get('reason') or '').strip()
+            ban_duration_days = request.data.get('ban_duration_days')
+            profile.is_banned = True
+            profile.banned_at = timezone.now()
+            profile.banned_reason = reason
+            if ban_duration_days:
+                try:
+                    profile.banned_until = timezone.now() + timedelta(
+                        days=int(ban_duration_days)
+                    )
+                except (ValueError, TypeError):
+                    profile.banned_until = None
+            else:
+                profile.banned_until = None
+            profile.save()
+            return Response({'detail': f'{username} has been banned.'})
+
+        if action == 'unban':
+            profile.is_banned = False
+            profile.banned_until = None
+            profile.banned_reason = ''
+            profile.banned_at = None
+            profile.save()
+            return Response({'detail': f'{username} has been unbanned.'})
+
+        return Response(
+            {'detail': 'Invalid action. Use "ban" or "unban".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """Login view: returns tokens plus username and role flags."""
+    serializer_class = CustomTokenObtainPairSerializer

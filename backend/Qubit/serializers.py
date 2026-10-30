@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Topic, Entry, Vote, Like, UserProfile, UserFollow, TopicFollow
+from .models import Topic, Entry, Vote, Like, UserProfile, UserFollow, TopicFollow, Report
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
 class EntrySerializer(serializers.ModelSerializer):
@@ -43,7 +44,7 @@ class TopicSerializer(serializers.ModelSerializer):
     tags = serializers.CharField(read_only=True)
     likes_count = serializers.IntegerField(read_only=True)
     is_liked = serializers.SerializerMethodField()
-    
+
     # Follow fields
     is_followed = serializers.SerializerMethodField()
     followers_count = serializers.SerializerMethodField()
@@ -112,7 +113,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     avatar_url = serializers.URLField(source='profile.avatar_url', read_only=True)
     website = serializers.URLField(source='profile.website', read_only=True)
     location = serializers.CharField(source='profile.location', read_only=True)
-    
+
     # Follow fields
     is_followed = serializers.SerializerMethodField()
     followers_count = serializers.SerializerMethodField()
@@ -204,3 +205,71 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ['bio', 'avatar_url', 'website', 'location']
+
+
+class ReportSerializer(serializers.ModelSerializer):
+    reporter = serializers.ReadOnlyField(source='reporter.username')
+    resolved_by = serializers.SerializerMethodField()
+    reported_user = serializers.SerializerMethodField()
+    target_preview = serializers.CharField(read_only=True)
+    topic_id_for_link = serializers.SerializerMethodField()
+    reason_display = serializers.CharField(source='get_reason_display', read_only=True)
+
+    class Meta:
+        model = Report
+        fields = [
+            'id', 'reporter', 'topic', 'entry', 'reason', 'description',
+            'status', 'resolved_by', 'resolution_note', 'resolved_at',
+            'created_at', 'reported_user', 'reported_user_id', 'target_type',
+            'target_id', 'target_preview', 'content_snapshot', 'content_removed',
+            'topic_id_for_link', 'reason_display',
+        ]
+        read_only_fields = [
+            'reporter', 'status', 'resolved_by', 'resolution_note', 'resolved_at',
+            'reported_user_id', 'target_type', 'target_id', 'content_snapshot',
+            'content_removed',
+        ]
+        extra_kwargs = {'description': {'max_length': 1000}}
+
+    def get_resolved_by(self, obj):
+        return obj.resolved_by.username if obj.resolved_by else None
+
+    def get_reported_user(self, obj):
+        return obj.reported_user.username if obj.reported_user else None
+
+    def get_topic_id_for_link(self, obj):
+        if obj.topic_id:
+            return obj.topic_id
+        if obj.entry_id:
+            return obj.entry.topic_id
+        return None
+
+    def validate(self, attrs):
+        topic = attrs.get('topic')
+        entry = attrs.get('entry')
+
+        if topic and entry:
+            raise serializers.ValidationError('A report cannot target both a topic and an entry.')
+        if not topic and not entry:
+            raise serializers.ValidationError('A report must target a topic or an entry.')
+
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            target_owner = topic.owner if topic else entry.author
+            if target_owner == request.user:
+                raise serializers.ValidationError('You cannot report your own content.')
+            duplicate = Report.objects.filter(reporter=request.user)
+            duplicate = duplicate.filter(topic=topic) if topic else duplicate.filter(entry=entry)
+            if duplicate.exists():
+                raise serializers.ValidationError('You have already reported this content.')
+        return attrs
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Login serializer that also returns role flags for the frontend."""
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['username'] = self.user.username
+        data['is_staff'] = self.user.is_staff
+        data['is_superuser'] = self.user.is_superuser
+        return data

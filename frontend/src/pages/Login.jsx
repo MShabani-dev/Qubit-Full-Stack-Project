@@ -30,8 +30,10 @@ export default function Login({ onLogin }) {
       localStorage.removeItem("access");
       localStorage.removeItem("refresh");
       localStorage.removeItem("username");
+      localStorage.removeItem("is_staff");
+      localStorage.removeItem("is_superuser");
 
-      // SimpleJWT TokenObtainPairView -> returns { access, refresh }
+      // CustomTokenObtainPairView -> returns { access, refresh, username, is_staff, is_superuser }
       const res = await api.post("api/login/", {
         username: username.trim(),
         password,
@@ -39,9 +41,14 @@ export default function Login({ onLogin }) {
 
       localStorage.setItem("access", res.data.access);
       localStorage.setItem("refresh", res.data.refresh);
-      localStorage.setItem("username", username.trim());
 
-      onLogin?.(username.trim());
+      // Use the canonical username returned by the server when available
+      const loggedInName = res.data.username || username.trim();
+      localStorage.setItem("username", loggedInName);
+      localStorage.setItem("is_staff", String(!!res.data.is_staff));
+      localStorage.setItem("is_superuser", String(!!res.data.is_superuser));
+
+      onLogin?.(loggedInName);
       showToast("success", "Welcome back! Redirecting...");
       setTimeout(() => navigate("/"), 1000);
     } catch (err) {
@@ -51,7 +58,9 @@ export default function Login({ onLogin }) {
         data?.username?.[0] ||
         data?.password?.[0] ||
         data?.non_field_errors?.[0] ||
-        "Invalid username or password.";
+        (err.response
+          ? "Invalid username or password."
+          : "Cannot reach the server. Is the backend running?");
       showToast("error", msg);
     } finally {
       setLoading(false);
